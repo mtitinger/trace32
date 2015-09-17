@@ -1,0 +1,31 @@
+// t32 Thu Sep 17 12:03:31 2015
+
+ B::
+ 
+ TOOLBAR ON
+ STATUSBAR ON
+ CMDPOS 274.29 4.0769 114. 27.
+ WinPAGE.RESet
+ 
+ WinPAGE.Create P000
+ WinCLEAR
+ 
+ WinPOS 471.14 1.0769 64. 16. 0. 0. W000
+ SYStem.state
+ 
+ WinPOS 282.71 51.308 127. 22. 0. 0. W001
+ AREA
+ 
+ WinPOS 385.71 1.0769 82. 25. 0. 0. W002
+ PER
+ 
+ WinPOS 283.29 1.0769 121. 76. 24. 1. W003
+ WinTABS 10. 10. 25. 62.
+ List.auto
+ 
+ WinPOS 411.29 1.0769 76. 78. 0. 0. W004
+ Register
+ 
+ WinPAGE.select P000
+ 
+ ENDDO
