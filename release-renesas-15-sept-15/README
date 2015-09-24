@@ -1,0 +1,220 @@
+2015-09-15  Marc Titinger  <mtitinger@baylibre.com>
+
+
+-----------------------
+
+Summary of this release.
+
+1) DESCRIPTION
+2) DEPENDENCIES
+3) URL
+
+------------------------
+
+
+1) DESCRIPTION
+
+
+	This patch set's underlying idea is that cluster-level c-states can be managed
+by the power domain, building upon Lina Iyers recent work on CPU-domain. Furthermore,
+devices may expose latency constraints by registering intermediate power-states, based
+on Axel Haslam recent "generic power domains / multiple states " contribution. Devices
+in the PD may be CPUs or not, and may register power-states upon probing.
+
+power-states
+-----------
+
+
+The proposed way how cluster-level c-states are declared as manageable by the
+power-domain, rather than through the cpuidle-ops, relies on the introduction of
+"power-states", consistent with c-states. Here is an example of the DT bindings,
+the c-state CLUSTER_SLEEP_0 is exposed as a power-state in the compatible property:
+
+juno.dts:           idle-states {
+                        entry-method = "arm,psci";
+
+                        CPU_SLEEP_0: cpu-sleep-0 {
+                                compatible = "arm,idle-state";
+                                arm,psci-suspend-param = <0x0010000>;
+                                local-timer-stop;
+                                entry-latency-us = <100>;
+                                exit-latency-us = <250>;
+                                min-residency-us = <2000>;
+                        };
+
+                        CLUSTER_SLEEP_0: cluster-sleep-0 {
+                                compatible = "arm,power-state";
+                                arm,psci-suspend-param = <0x1010000>;
+                                local-timer-stop;
+                                entry-latency-us = <800>;
+                                exit-latency-us = <700>;
+                                min-residency-us = <2500>;
+                        };
+		}
+
+This will tell cpuidle to not call into cpuidle_enter_state for this c-state,
+but leave the suspend/resume calls to the power domain:
+
+"drivers/cpuidle/cpuidle-arm.c":
+
+static const struct of_device_id arm_idle_state_match[] __initconst = {
+        {.compatible = "arm,idle-state",
+         .data = arm_enter_idle_state},
+        {.compatible = "arm,power-state",
+         .data = arm_enter_power_state},
+};
+
+
+In case of a power-state, arm_enter_power_state will only call pm_runtime_put/get_sync
+The power doamin will handle the power off, currently this patch set lacks the final
+call to the psci interface to have a fully fonctionnal setup.
+
+Ultimately, we would like the Power Domain's simple governor to being able to chose
+the cluster power-state based on the c-states defered to it (power-states) and constraints
+added by the devices. Consequently, we need to "soak" those power-states into the
+power-domain intermediate states from Axel. Since power-states are declared and handled
+the same manner than c-states (idle-states in DT), these patches add a soaking used when
+attaching to a genpd, where power-states are parsed from the DT into the genpd states:
+
+
+"drivers/base/power/domain.c":
+
+static const struct of_device_id power_state_match[] = {
+        {.compatible = "arm,power-state",
+         },
+};
+
+int of_genpd_device_parse_states(struct device_node *np,
+                                 struct generic_pm_domain *genpd)
+
+debugfs addition
+---------------
+
+To easy debug, this patch set adds a seq-file names "states" to the pm_genpd debugfs:
+
+    cat /sys/kernel/debug/pm_genpd/*
+
+      Domain             State name        Enter (ns) / Exit (ns)
+    -------------------------------------------------------------
+    a53_pd               cluster-sleep-0      1500000 / 800000
+    a57_pd               cluster-sleep-0      1500000 / 800000
+
+        domain                      status pstate     slaves
+               /device                                      runtime status
+    -----------------------------------------------------------------------
+    a53_pd                          on
+        /devices/system/cpu/cpu0                            active
+        /devices/system/cpu/cpu3                            suspended
+        /devices/system/cpu/cpu4                            suspended
+        /devices/system/cpu/cpu5                            suspended
+        /devices/platform/D1                                suspended
+    a57_pd                          cluster-sleep-0
+        /devices/system/cpu/cpu1                            suspended
+        /devices/system/cpu/cpu2                            suspended
+
+Device power-states
+-------------------
+
+some devices, like L2 caches, may feature a shalower retention mode, between CPU_SLEEP_0
+and CLUSTER_SLEEP_0, in which mode the L2 memory is not powered off, leading to faster
+resume than CLUSTER_SLEEP_0.
+
+One way to handle device constrains and retention features in the power-domain, is to
+allow devices to register a new power-state (consistent with a c-state).
+
+idle-states:
+
+                        D1_RETENTION: d1-retention {
+                                compatible = "arm,power-state";
+                                /*leave the psci param, for demo/testing:
+                                * the psci cpuidle driver will not currently
+                                * understand that a c-state shall not have it's
+                                * table entry with a firmware command.
+                                * the actual .power_on/off would be registered
+                                * by the DECLARE macro for a given domain*/
+                                arm,psci-suspend-param = <0x1010000>;
+                                local-timer-stop;
+                                entry-latency-us = <800>;
+                                exit-latency-us = <200>;
+                                min-residency-us = <2500>;
+                        };
+
+
+        D1 {
+                compatible = "fake,fake-driver";
+                name = "D1";
+                constraint = <30000>;
+                power-domains = <&a53_pd>;
+		power-states =<&D1_RETENTION &D1_FLUSH>;
+        };
+
+
+The genpd simple governor can now upon suspend of the last-man CPU chose a shallower
+retention state than CLUSTER_SLEEP_0.
+
+In order to achieve this, this patch set added the power-state parsing during the
+genpd_dev_pm_attach call. Multiple genpd states are now inserted in a sorted manner
+according to their depth: see pm_genpd_insert_state in "drivers/base/power/domain.c".
+
+Next steps:
+-----------
+
+- Close the loops with Juno by calling the PSCI ops from genpd.
+- Add the proper instrumentation for ftrace into domain(s).c and demonstrate
+  that cluster-level power-states are managed as expected.
+- Demonstrate how devices can register shallower or deeper power-states
+- better handling of device removal, state unregistration.
+
+
+2) DEPENDENCIES
+
+	This patch set applies over linux-4.2rc5 plus the following ordered dependencies:
+
+ * Ulf Hansson:
+
+6637131 New          [V4] PM / Domains: Remove intermediate states from the power off sequence
+
+ * Lina Iyer's patch series:
+
+6945201 New          [1/9] PM / Domains: Allocate memory outside domain locks
+6945221 New          [2/9] PM / Domains: Remove dev->driver check for runtime PM
+6945231 New          [3/9] PM / Domains: Support IRQ safe PM domains
+6945211 New          [4/9] kernel/cpu_pm: fix cpu_cluster_pm_exit comment
+6945251 New          [5/9] ARM: common: Introduce PM domains for CPUs/clusters
+6945281 New          [6/9] ARM: domain: Add platform handlers for CPU PM domains
+6945261 New          [7/9] ARM: cpuidle: Add runtime PM support for CPU idle
+6945241 New          [8/9] ARM64: smp: Add runtime PM support for CPU hotplug
+6945271 New          [9/9] ARM: smp: Add runtime PM support for CPU hotplug
+
+ * John Medhurst:
+
+6303671 New          arm64: dts: Add idle-states for Juno
+
+ * Axel Haslam:
+
+7b4eda6 ARM: imx6: pm: declare pm domain latency on power_state struct.
+e65789a PM / Domains: make governor select deepest state
+8b22b90 PM / Domains: core changes for multiple states
+84af098 PM / Domains: prepare for multiple states
+eab63fd fake driver
+18580ea shmobile: dt changes for fake domain pstats
+8c3381c shmobile defconfig update
+0297bbe PM / Domains: introduce pstates
+14d53c3 PM / runtime: add pstate callbacks and functions
+36000f5 ARM: cpuidle-bL: Add runtime PM support for CPU idle
+32c792d HACK mcpm: dont do core standby for cpu0
+ad3e0f3 shmobile: add cpu domains
+92e6dd3 ARM: shmobile: dont program core standby if cpu is off
+95e6e6e cpuidle: big.LITTLE: Add ARCH_SHMOBILE and r8a7790
+a85a0f3 ARM: shmobile: dont start A15 when booting from A7
+44cc762 ARM: shmobile: check if mcpm was initialized
+d7e30ff ARM: shmobile: Add MCPM call-back functions
+089bacd ARM: shmobile: r8a7790: add cci-control-port to r8a7790
+e6a5e67 ARM: shmobile: check if cpu is allowed on power on
+3e97981 ARM: shmobile: export apmu_power_* funtions
+b98cb08 ARM: shmobile: fix broken arch timer for A7
+
+3) URL
+
+https://github.com/mtitinger/linux-pm.git, branch marc.
+

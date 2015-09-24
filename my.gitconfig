@@ -1,0 +1,11 @@
+[user]
+	email = mtitinger@baylibre.com
+	name = Marc Titinger
+[color]
+	ui = auto
+[sendemail]
+	smtpserver = smtp.gmail.com
+	smtpserverport = 587
+	smtpencryption = tls
+	smtpuser = mtitinger@baylibre.com
+	smtppass = TODOTODOTODO

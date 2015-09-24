@@ -1,0 +1,174 @@
+
+*** LTTNG ** 
+make -C ~/work/build-aarch64/ M=/home/marc/work/GITS/buildroot/output/build/lttng-modules-2.6.0/. modules_install
+
+CONFIG_HAVE_SYSCALL_TRACEPOINTS: system call tracing                                                       │  
+  │   * CONFIG_PERF_EVENTS: performance counters                                                                   │  
+  │   * CONFIG_EVENT_TRACING: needed to allow block layer tracing                                                  │  
+  │   * CONFIG_KPROBES: dynamic probes                                                                             │  
+  │   * CONFIG_KRETPROBES: dynamic function entry/return probes                                                    │  
+  │   * CONFIG_KALLSYMS_ALL/i
+HAVE_KPROBES
+
+*********************
+
+[<ffffffc0005be8ac>] cpu_psci_cpu_suspend+0xbc/0xcc
+[<ffffffc0000936dc>] arm_cpuidle_suspend+0x40/0x58
+[<ffffffc000093778>] arm_pd_power_down+0x3c/0x50
+[<ffffffc0004ce164>] genpd_power_off+0x40/0xc8
+[<ffffffc0004cf5ec>] pm_genpd_poweroff+0x138/0x198
+[<ffffffc0004cf848>] pm_genpd_runtime_suspend+0x104/0x1c0
+[<ffffffc0004c3a14>] __rpm_callback+0x38/0x9c
+[<ffffffc0004c3aa8>] rpm_callback+0x30/0xa0
+[<ffffffc0004c3ff0>] rpm_suspend+0x13c/0x8e8
+[<ffffffc0004c4b68>] rpm_idle+0x2f4/0x74c
+[<ffffffc0004c5018>] __pm_runtime_idle+0x58/0x94
+[<ffffffc00059d798>] arm_enter_power_state+0x50/0xa4
+[<ffffffc00059b33c>] cpuidle_enter_state+0xbc/0x3ec
+[<ffffffc00059b6d8>] cpuidle_enter+0x2c/0x3c
+[<ffffffc0000e36cc>] call_cpuidle+0x40/0x78
+[<ffffffc0000e39ac>] cpu_startup_entry+0x2a8/0x44c
+[<ffffffc00008f7a0>] secondary_start_kernel+0x148/0x170
+
+
+
+git format-patch --subject-prefix="RFC" -o ~/patches/ -3 --cover-letter
+
+git send-email --no-chain-reply-to
+
+
+
+enable-4.1.0.egg-info/requires.txt: replaced PIL with pillow
+
+
+https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+
+** callstack JUNO ** 
+
+arm_enter_idle_state
+cpu_psci_cpu_suspend
+psci_cpu_suspend
+
+
+
+** debug ** 
+
+kgdbwait kgdboc=ttyS0,115200
+mount -t debugfs nodev /sys/kernel/debug
+https://git.kernel.org/pub/scm/utils/kernel/kgdb/agent-proxy.git
+./agent-proxy 4440^4441 0 /dev/ttyUSB0,115200
+powertop in BR, enable cpp.
+
+modify /etc/ssh/sshd_config to have
+
+RSAAuthentication yes
+PubkeyAuthentication yes
+AuthorizedKeysFile  %h/.ssh/authorized_keys
+
+https://www.linaro.org/blog/core-dump/debugging-arm-kernels-using-nmifiq/
+ 
+
+** ftrace ** 
+
+mount -t debugfs nodev /sys/kernel/debug
+
+trace-cmd start -p function
+trace-cmd stop
+trace-cmd show
+
+
+echo SyS_read > set_graph_function
+echo function_graph > current_tracer
+cat trace
+trace-cmd start -p function_graph -g SyS_read
+
+
+trace-cmd list -e
+
+** issues ** 
+
+
+idle_state_valid : will check if all CPUs handle the state => pb with cluster specific states ?
+
+
+
+
+
+** nfs  & tftpd**
+sudo service nfs-kernel-server restart 
+sudo apt-get install tftpd-hpa
+sudo service tftpd-hpa restart
+/var/lib/tftpboot
+
+
+sudo   atftpd --daemon  /var/lib/tftpboot/
+
+    
+** Minicom Juno setup ** 
+
+
+/dev/ttyUSB0
+set up 115200 baud, 8 data bits, NO parity, 1 stop bit, NONE control flow, then select hardware flow control OFF
+can be ttyUSB1
+In the Modem and dialing menu delete "init string", "reset string" and "hang up string"
+cmd> usb_on
+
+=> /media/marc/JUNO
+
+** u-boot config old ** 
+
+baudrate=115200
+bootargs=console=ttyAMA0,115200n8 root=/dev/nfs ip=192.168.10.4:192.168.10.3:192.168.10.3:255.255.255.0::::: nfsroot=1 
+bootcmd=tftpboot 0x80000000 Image ; tftpboot 0x83000000 juno.dtb; booti 0x80000000 - 0x83000000
+bootdelay=3
+bootserver=192.168.10.3
+ethact=smc911x-0
+ethaddr=00:02:f7:00:5b:7f
+fdt_addr=0x8f00000
+fdt_addr_r=0x83000000
+fdt_high=0xffffffffffffffff
+fdt_name=juno.dtb
+initrd_high=0xffffffffffffffff
+ipaddr=192.168.10.4
+kernel_addr=0x8500000
+kernel_addr_r=0x80000000
+kernel_name=Image
+max_fdt=0x100000
+max_kernel=0xa00000
+serverip=192.168.10.3
+stderr=serial
+stdin=serial
+stdout=serial
+
+** u-boot patch ** 
+
+
+O=build-juno
+CROSS_COMPILE   := aarch64-linux-gnu-
+vexpress_aemv8a_juno_defconfig
+
+** ATF **
+
+
+
+make BL33=~/GITS/u-boot/u-boot.bin DEBUG=1 PLAT=juno LOG_LEVEL=50 all fip
+BL30=~/Desktop/JUNO/bl30.bin 
+
+> cp ./build/juno/debug/fip.bin /media/axelh/JUNO/SOFTWARE/fip.bin
+> cp ./build/juno/debug/bl1.bin /media/axelh/JUNO/SOFTWARE/bl1.bin
+
+
+** patches **
+
+./pwclient search juno | grep state
+./pwclient get 6303671
+
+** idle-states ** 
+
+
+/proc/device-tree/cpus/idle-states
+
+cluster-sleep-0  cpu-sleep-0
+
+entry-method
+arm,psci

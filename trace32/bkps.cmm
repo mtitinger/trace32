@@ -1,0 +1,8 @@
+// T32 Thu Sep 17 15:57:47 2015
+
+ B::
+ 
+ BREAK.RESET
+ B.S   arm_pd_power_down /P
+ 
+ ENDDO
